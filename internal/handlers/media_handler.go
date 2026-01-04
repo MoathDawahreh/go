@@ -56,7 +56,16 @@ func (h *MediaHandler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 
 // GetAllMedia retrieves all media files - GET /media
 func (h *MediaHandler) GetAllMedia(w http.ResponseWriter, r *http.Request) {
-	mediaList := h.service.GetAllMedia()
+	mediaList, err := h.service.GetAllMedia()
+	if err != nil {
+		response := &models.MediaListResponse{
+			Error: "Failed to retrieve media: " + err.Error(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
 
 	response := &models.MediaListResponse{
 		Total: len(mediaList),

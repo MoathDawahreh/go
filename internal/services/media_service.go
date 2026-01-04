@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"example.com/myapp/internal/models"
+	"example.com/myapp/internal/repositories"
 	"github.com/google/uuid"
 	"golang.org/x/image/webp"
 )
@@ -20,10 +21,10 @@ import (
 const (
 	// MaxFileSize is 200 MB in bytes
 	MaxFileSize = 200 * 1024 * 1024
-	
+
 	// MediaStoragePath is the directory where media files are stored
 	MediaStoragePath = "./uploads"
-	
+
 	// ImageQuality is the JPEG quality for optimized images (0-100)
 	ImageQuality = 85
 )
@@ -33,15 +34,15 @@ var SupportedImageFormats = []string{"image/jpeg", "image/png", "image/webp", "i
 var SupportedFormats = append(SupportedImageFormats, "application/pdf")
 
 type MediaService struct {
-	mediaMap map[string]*models.Media
+	repo repositories.MediaRepository
 }
 
-func NewMediaService() *MediaService {
+func NewMediaService(repo repositories.MediaRepository) *MediaService {
 	// Create uploads directory if it doesn't exist
 	os.MkdirAll(MediaStoragePath, 0755)
-	
+
 	return &MediaService{
-		mediaMap: make(map[string]*models.Media),
+		repo: repo,
 	}
 }
 
@@ -130,8 +131,11 @@ func (s *MediaService) UploadMedia(file *multipart.FileHeader) (*models.Media, e
 		media.Height = imgDims.Max.Y
 	}
 
-	// Store in memory
-	s.mediaMap[media.ID] = media
+	// Store in repository
+	err = s.repo.Save(media)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save media to repository: %w", err)
+	}
 
 	return media, nil
 }
@@ -187,38 +191,29 @@ func (s *MediaService) getImageDimensions(fileBytes []byte) (image.Rectangle, er
 
 // GetMedia retrieves a media file by ID
 func (s *MediaService) GetMedia(id string) (*models.Media, error) {
-	media, exists := s.mediaMap[id]
-	if !exists {
-		return nil, fmt.Errorf("media not found")
-	}
-	return media, nil
+	return s.repo.GetByID(id)
 }
 
 // GetAllMedia retrieves all media files
-func (s *MediaService) GetAllMedia() []*models.Media {
-	media := make([]*models.Media, 0, len(s.mediaMap))
-	for _, m := range s.mediaMap {
-		media = append(media, m)
-	}
-	return media
+func (s *MediaService) GetAllMedia() ([]*models.Media, error) {
+	return s.repo.GetAll()
 }
 
 // DeleteMedia deletes a media file
 func (s *MediaService) DeleteMedia(id string) error {
-	media, exists := s.mediaMap[id]
-	if !exists {
-		return fmt.Errorf("media not found")
+	media, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
 	}
 
 	// Delete file from disk
-	err := os.Remove(media.FilePath)
+	err = os.Remove(media.FilePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
 
-	// Remove from memory
-	delete(s.mediaMap, id)
-	return nil
+	// Remove from repository
+	return s.repo.Delete(id)
 }
 
 // Helper functions

@@ -4,22 +4,16 @@ import (
 	"fmt"
 	"net/http"
 
-	"example.com/myapp/internal/handlers"
+	"example.com/myapp/internal/container"
 	"example.com/myapp/internal/routes"
-	"example.com/myapp/internal/services"
 )
 
 func main() {
-	// Initialize services
-	userService := services.NewUserService()
-	mediaService := services.NewMediaService()
-	
-	// Initialize handlers
-	userHandler := handlers.NewUserHandler(userService)
-	mediaHandler := handlers.NewMediaHandler(mediaService)
+	// Initialize container with all dependencies
+	c := container.NewContainer()
 	
 	// Setup routes
-	r := routes.SetupRoutes(userHandler, mediaHandler)
+	r := routes.SetupRoutes(c.UserHandler, c.MediaHandler)
 	
 	// Start server
 	fmt.Println("Server running on http://localhost:8080")

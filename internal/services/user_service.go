@@ -1,82 +1,63 @@
 package services
 
 import (
-	"errors"
-
 	"example.com/myapp/internal/models"
+	"example.com/myapp/internal/repositories"
 )
 
 type UserService struct {
-	users map[int]*models.User
-	nextID int
+	repo repositories.UserRepository
 }
 
-func NewUserService() *UserService {
+func NewUserService(repo repositories.UserRepository) *UserService {
 	return &UserService{
-		users: make(map[int]*models.User),
-		nextID: 1,
+		repo: repo,
 	}
 }
 
 // Create a new user
-func (s *UserService) CreateUser(req *models.CreateUserRequest) *models.User {
+func (s *UserService) CreateUser(req *models.CreateUserRequest) (*models.User, error) {
 	user := &models.User{
-		ID:    s.nextID,
 		Name:  req.Name,
 		Email: req.Email,
 		Age:   req.Age,
 	}
-	s.users[s.nextID] = user
-	s.nextID++
-	return user
-}
-
-// Get user by ID
-func (s *UserService) GetUser(id int) (*models.User, error) {
-	user, exists := s.users[id]
-	if !exists {
-		return nil, errors.New("user not found")
+	err := s.repo.Create(user)
+	if err != nil {
+		return nil, err
 	}
 	return user, nil
 }
 
+// Get user by ID
+func (s *UserService) GetUser(id int) (*models.User, error) {
+	return s.repo.GetByID(id)
+}
+
 // Get all users
-func (s *UserService) GetAllUsers() []*models.User {
-	users := make([]*models.User, 0, len(s.users))
-	for _, user := range s.users {
-		users = append(users, user)
-	}
-	// add a mock user for demonstration
-	users = append(users, &models.User{
-		ID:    0,
-		Name:  "Mock User",
-		Email: "Maz@gmail.com",
-		Age:   30,
-	})
-
-
-	return users
+func (s *UserService) GetAllUsers() ([]*models.User, error) {
+	return s.repo.GetAll()
 }
 
 // Update user
 func (s *UserService) UpdateUser(id int, req *models.UpdateUserRequest) (*models.User, error) {
-	user, exists := s.users[id]
-	if !exists {
-		return nil, errors.New("user not found")
+	user, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
 	}
-	
+
 	user.Name = req.Name
 	user.Email = req.Email
 	user.Age = req.Age
-	
+
+	err = s.repo.Update(user)
+	if err != nil {
+		return nil, err
+	}
 	return user, nil
 }
 
 // Delete user
 func (s *UserService) DeleteUser(id int) error {
-	if _, exists := s.users[id]; !exists {
-		return errors.New("user not found")
-	}
-	delete(s.users, id)
-	return nil
+	return s.repo.Delete(id)
 }
