@@ -10,12 +10,23 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const UserRoutePrefix = "/users"
+
 type UserHandler struct {
 	service *services.UserService
 }
 
 func NewUserHandler(service *services.UserService) *UserHandler {
 	return &UserHandler{service: service}
+}
+
+// RegisterRoutes registers all user-related routes
+func (h *UserHandler) RegisterRoutes(r chi.Router) {
+	r.Post(UserRoutePrefix, h.CreateUser)
+	r.Get(UserRoutePrefix, h.GetAllUsers)
+	r.Get(UserRoutePrefix+"/{id}", h.GetUser)
+	r.Put(UserRoutePrefix+"/{id}", h.UpdateUser)
+	r.Delete(UserRoutePrefix+"/{id}", h.DeleteUser)
 }
 
 // Create a new user - POST /users

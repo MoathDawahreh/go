@@ -6,7 +6,10 @@ import (
 
 	"example.com/myapp/internal/models"
 	"example.com/myapp/internal/services"
+	"github.com/go-chi/chi/v5"
 )
+
+const MediaRoutePrefix = "/media"
 
 type MediaHandler struct {
 	service *services.MediaService
@@ -14,6 +17,15 @@ type MediaHandler struct {
 
 func NewMediaHandler(service *services.MediaService) *MediaHandler {
 	return &MediaHandler{service: service}
+}
+
+// RegisterRoutes registers all media-related routes
+func (h *MediaHandler) RegisterRoutes(r chi.Router) {
+	r.Post(MediaRoutePrefix+"/upload", h.UploadMedia)
+	r.Get(MediaRoutePrefix, h.GetAllMedia)
+	r.Get(MediaRoutePrefix+"/{id}", h.GetMedia)
+	r.Get(MediaRoutePrefix+"/{id}/download", h.DownloadMedia)
+	r.Delete(MediaRoutePrefix+"/{id}", h.DeleteMedia)
 }
 
 // UploadMedia handles file upload - POST /media/upload

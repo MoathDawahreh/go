@@ -13,7 +13,7 @@ func main() {
 	c := container.NewContainer()
 	
 	// Setup routes
-	r := routes.SetupRoutes(c.UserHandler, c.MediaHandler)
+	r := routes.SetupRoutes(c)
 	
 	// Start server
 	fmt.Println("Server running on http://localhost:8080")
