@@ -3,8 +3,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 
+	"example.com/myapp/internal/middleware"
 	"example.com/myapp/internal/models"
 	"example.com/myapp/internal/services"
 	"github.com/go-chi/chi/v5"
@@ -18,12 +18,22 @@ func NewUserHandler(service *services.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-// RegisterRoutes registers all user-related routes
+// RegisterRoutes registers all user-related routes with appropriate middleware
 func (h *UserHandler) RegisterRoutes(r chi.Router) {
 	r.Route("/users", func(r chi.Router) {
+		// Middleware for ALL user routes
+		r.Use(middleware.LoggingMiddleware)
+		r.Use(middleware.AuthMiddleware)
+
 		r.Post("/", h.CreateUser)
 		r.Get("/", h.GetAllUsers)
+
+		// Nested route for ID-specific operations
 		r.Route("/{id}", func(r chi.Router) {
+			// Middleware ONLY for routes with {id}
+			// Validates and extracts the ID to context
+			r.Use(middleware.ValidateIDMiddleware)
+
 			r.Get("/", h.GetUser)
 			r.Put("/", h.UpdateUser)
 			r.Delete("/", h.DeleteUser)
@@ -66,9 +76,9 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 
 // Get a single user - GET /users/{id}
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
+	// Extract validated ID from context (set by ValidateIDMiddleware)
+	id, ok := r.Context().Value("userID").(int)
+	if !ok {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
@@ -86,9 +96,9 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 
 // Update a user - PUT /users/{id}
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
+	// Extract validated ID from context (set by ValidateIDMiddleware)
+	id, ok := r.Context().Value("userID").(int)
+	if !ok {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
@@ -112,14 +122,14 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 // Delete a user - DELETE /users/{id}
 func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
+	// Extract validated ID from context (set by ValidateIDMiddleware)
+	id, ok := r.Context().Value("userID").(int)
+	if !ok {
 		http.Error(w, "Invalid user ID", http.StatusBadRequest)
 		return
 	}
 	
-	err = h.service.DeleteUser(id)
+	err := h.service.DeleteUser(id)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"example.com/myapp/internal/middleware"
 	"example.com/myapp/internal/models"
 	"example.com/myapp/internal/services"
 	"github.com/go-chi/chi/v5"
@@ -17,12 +18,19 @@ func NewMediaHandler(service *services.MediaService) *MediaHandler {
 	return &MediaHandler{service: service}
 }
 
-// RegisterRoutes registers all media-related routes
+// RegisterRoutes registers all media-related routes with appropriate middleware
 func (h *MediaHandler) RegisterRoutes(r chi.Router) {
 	r.Route("/media", func(r chi.Router) {
+		// Middleware for ALL media routes
+		r.Use(middleware.LoggingMiddleware)
+		r.Use(middleware.AuthMiddleware)
+
 		r.Post("/upload", h.UploadMedia)
 		r.Get("/", h.GetAllMedia)
 		r.Route("/{id}", func(r chi.Router) {
+			// Middleware for ID-specific operations
+			r.Use(middleware.ValidateIDMiddleware)
+
 			r.Get("/", h.GetMedia)
 			r.Get("/download", h.DownloadMedia)
 			r.Delete("/", h.DeleteMedia)
