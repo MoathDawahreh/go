@@ -6,16 +6,21 @@ import (
 
 	"example.com/myapp/internal/middleware"
 	"example.com/myapp/internal/models"
+	"example.com/myapp/internal/repositories"
 	"example.com/myapp/internal/services"
 	"github.com/go-chi/chi/v5"
 )
 
 type UserHandler struct {
 	service *services.UserService
+	repo    repositories.UserRepository
 }
 
-func NewUserHandler(service *services.UserService) *UserHandler {
-	return &UserHandler{service: service}
+func NewUserHandler(service *services.UserService, repo repositories.UserRepository) *UserHandler {
+	return &UserHandler{
+		service: service,
+		repo:    repo,
+	}
 }
 
 // RegisterRoutes registers all user-related routes with appropriate middleware
@@ -32,6 +37,8 @@ func (h *UserHandler) RegisterRoutes(r chi.Router) {
 		r.Route("/{id}", func(r chi.Router) {
 			// Middleware ONLY for routes with {id}
 			// Validates and extracts the ID to context
+			// Loads the full user object into context
+			r.Use(middleware.LoadUserMiddleware(h.repo))
 			r.Use(middleware.ValidateIDMiddleware)
 
 			r.Get("/", h.GetUser)
@@ -73,22 +80,15 @@ func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(users)
 }
-
-// Get a single user - GET /users/{id}
+// User is already fetched and in context by LoadUserMiddleware
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
-	// Extract validated ID from context (set by ValidateIDMiddleware)
-	id, ok := r.Context().Value("userID").(int)
+	// Get user from context (loaded by LoadUserMiddleware)
+	user, ok := r.Context().Value("user").(*models.User)
 	if !ok {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
-		return
-	}
-	
-	user, err := h.service.GetUser(id)
-	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(user)
@@ -114,6 +114,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
+	// We could also get the user from context if we wanted pre-fetched data
 	
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

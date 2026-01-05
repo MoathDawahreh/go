@@ -29,8 +29,8 @@ func NewContainer() *Container {
 	userService := services.NewUserService(userRepo)
 	mediaService := services.NewMediaService(mediaRepo)
 
-	// Initialize handlers with services
-	userHandler := handlers.NewUserHandler(userService)
+	// Initialize handlers with services and repositories
+	userHandler := handlers.NewUserHandler(userService, userRepo)
 	mediaHandler := handlers.NewMediaHandler(mediaService)
 
 	return &Container{
