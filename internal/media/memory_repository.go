@@ -1,8 +1,10 @@
 package media
 
 import (
-	"errors"
+	"context"
 	"sync"
+
+	appErr "example.com/myapp/internal/errors"
 )
 
 // InMemoryRepository is an in-memory implementation of Repository
@@ -19,12 +21,16 @@ func NewInMemoryRepository() *InMemoryRepository {
 }
 
 // Save stores a media file
-func (r *InMemoryRepository) Save(media *Media) error {
+func (r *InMemoryRepository) Save(ctx context.Context, media *Media) error {
+	if err := ctx.Err(); err != nil {
+		return appErr.Internal("context cancelled", err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if media.ID == "" {
-		return errors.New("media ID is required")
+		return appErr.BadRequest("media ID is required")
 	}
 
 	r.media[media.ID] = media
@@ -32,19 +38,27 @@ func (r *InMemoryRepository) Save(media *Media) error {
 }
 
 // GetByID retrieves a media file by ID
-func (r *InMemoryRepository) GetByID(id string) (*Media, error) {
+func (r *InMemoryRepository) GetByID(ctx context.Context, id string) (*Media, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, appErr.Internal("context cancelled", err)
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	media, exists := r.media[id]
 	if !exists {
-		return nil, errors.New("media not found")
+		return nil, appErr.NotFound("media not found")
 	}
 	return media, nil
 }
 
 // GetAll retrieves all media files
-func (r *InMemoryRepository) GetAll() ([]*Media, error) {
+func (r *InMemoryRepository) GetAll(ctx context.Context) ([]*Media, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, appErr.Internal("context cancelled", err)
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -56,12 +70,16 @@ func (r *InMemoryRepository) GetAll() ([]*Media, error) {
 }
 
 // Delete removes a media file
-func (r *InMemoryRepository) Delete(id string) error {
+func (r *InMemoryRepository) Delete(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return appErr.Internal("context cancelled", err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.media[id]; !exists {
-		return errors.New("media not found")
+		return appErr.NotFound("media not found")
 	}
 	delete(r.media, id)
 	return nil

@@ -2,8 +2,10 @@ package users
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
+	appErr "example.com/myapp/internal/errors"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -33,8 +35,6 @@ func (h *Handler) RegisterRoutes(r chi.Router, loggingMw, authMw, loadUserMw fun
 		// Nested route for ID-specific operations
 		r.Route("/{id}", func(r chi.Router) {
 			// Middleware ONLY for routes with {id}
-			// Validates and extracts the ID to context
-			// Loads the full user object into context
 			r.Use(loadUserMw)
 			r.Use(validateIDMw)
 
@@ -50,16 +50,19 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		slog.Error("Failed to decode request", "error", err)
+		respondError(w, appErr.BadRequest("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
-	user, err := h.service.CreateUser(&req)
+	user, err := h.service.CreateUser(r.Context(), &req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		slog.Error("Failed to create user", "error", err)
+		respondError(w, err, getStatusCode(err))
 		return
 	}
 
+	slog.Info("User created", "user_id", user.ID)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(user)
@@ -67,9 +70,10 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 // Get all users - GET /users
 func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.service.GetAllUsers()
+	users, err := h.service.GetAllUsers(r.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		slog.Error("Failed to get all users", "error", err)
+		respondError(w, err, getStatusCode(err))
 		return
 	}
 
@@ -78,12 +82,13 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(users)
 }
 
-// User is already fetched and in context by LoadUserMiddleware
+// Get a user - GET /users/{id}
 func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (loaded by LoadUserMiddleware)
 	user, ok := r.Context().Value("user").(*User)
 	if !ok {
-		http.Error(w, "User not found", http.StatusNotFound)
+		slog.Error("User not found in context")
+		respondError(w, appErr.NotFound("user not found"), http.StatusNotFound)
 		return
 	}
 
@@ -97,23 +102,25 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// Extract validated ID from context (set by ValidateIDMiddleware)
 	id, ok := r.Context().Value("userID").(int)
 	if !ok {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		respondError(w, appErr.InvalidID("invalid user id"), http.StatusBadRequest)
 		return
 	}
 
 	var req UpdateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		slog.Error("Failed to decode request", "error", err)
+		respondError(w, appErr.BadRequest("invalid request body"), http.StatusBadRequest)
 		return
 	}
 
-	user, err := h.service.UpdateUser(id, &req)
+	user, err := h.service.UpdateUser(r.Context(), id, &req)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		slog.Error("Failed to update user", "id", id, "error", err)
+		respondError(w, err, getStatusCode(err))
 		return
 	}
-	// We could also get the user from context if we wanted pre-fetched data
 
+	slog.Info("User updated", "user_id", id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(user)
@@ -124,15 +131,48 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	// Extract validated ID from context (set by ValidateIDMiddleware)
 	id, ok := r.Context().Value("userID").(int)
 	if !ok {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		respondError(w, appErr.InvalidID("invalid user id"), http.StatusBadRequest)
 		return
 	}
 
-	err := h.service.DeleteUser(id)
+	err := h.service.DeleteUser(r.Context(), id)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		slog.Error("Failed to delete user", "id", id, "error", err)
+		respondError(w, err, getStatusCode(err))
 		return
 	}
 
+	slog.Info("User deleted", "user_id", id)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Helper functions
+
+func getStatusCode(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+
+	ae := appErr.GetAppError(err)
+	if ae == nil {
+		return http.StatusInternalServerError
+	}
+
+	switch ae.Code {
+	case appErr.ErrCodeNotFound:
+		return http.StatusNotFound
+	case appErr.ErrCodeBadRequest, appErr.ErrCodeInvalidID:
+		return http.StatusBadRequest
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func respondError(w http.ResponseWriter, err error, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	response := map[string]interface{}{
+		"error": err.Error(),
+	}
+	json.NewEncoder(w).Encode(response)
 }

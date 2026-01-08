@@ -1,17 +1,20 @@
 package media
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"image/png"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	appErr "example.com/myapp/internal/errors"
 	"github.com/google/uuid"
 	"golang.org/x/image/webp"
 )
@@ -45,16 +48,21 @@ func NewService(repo Repository) *Service {
 }
 
 // UploadMedia uploads and processes a media file
-func (s *Service) UploadMedia(file *multipart.FileHeader) (*Media, error) {
+func (s *Service) UploadMedia(ctx context.Context, file *multipart.FileHeader) (*Media, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, appErr.Internal("context cancelled", err)
+	}
+
 	// Validate file size
 	if file.Size > MaxFileSize {
-		return nil, fmt.Errorf("file size exceeds maximum limit of 200 MB (file size: %.2f MB)", float64(file.Size)/(1024*1024))
+		return nil, appErr.FileTooLarge(fmt.Sprintf("file size exceeds maximum limit of 200 MB (file size: %.2f MB)", float64(file.Size)/(1024*1024)))
 	}
 
 	// Open the file
 	src, err := file.Open()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		slog.Error("Failed to open file", "error", err)
+		return nil, appErr.Internal("failed to open file", err)
 	}
 	defer src.Close()
 
@@ -67,7 +75,7 @@ func (s *Service) UploadMedia(file *multipart.FileHeader) (*Media, error) {
 
 	// Validate content type
 	if !isValidContentType(contentType) {
-		return nil, fmt.Errorf("unsupported file type: %s. Supported types: JPEG, PNG, WebP, GIF, PDF", contentType)
+		return nil, appErr.UnsupportedType("unsupported file type: " + contentType + ". Supported types: JPEG, PNG, WebP, GIF, PDF")
 	}
 
 	// Determine media type and format
@@ -86,7 +94,8 @@ func (s *Service) UploadMedia(file *multipart.FileHeader) (*Media, error) {
 		// Optimize image
 		optimizedBytes, dims, err := s.optimizeImage(fileBytes, contentType)
 		if err != nil {
-			return nil, fmt.Errorf("failed to optimize image: %w", err)
+			slog.Error("Failed to optimize image", "error", err)
+			return nil, appErr.Internal("failed to optimize image", err)
 		}
 
 		fileBytes = optimizedBytes
@@ -97,7 +106,8 @@ func (s *Service) UploadMedia(file *multipart.FileHeader) (*Media, error) {
 		format = "pdf"
 		fileBytes, err = io.ReadAll(src)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read file: %w", err)
+			slog.Error("Failed to read file", "error", err)
+			return nil, appErr.Internal("failed to read file", err)
 		}
 	}
 
@@ -108,7 +118,8 @@ func (s *Service) UploadMedia(file *multipart.FileHeader) (*Media, error) {
 	// Save file to disk
 	err = os.WriteFile(filePath, fileBytes, 0644)
 	if err != nil {
-		return nil, fmt.Errorf("failed to save file: %w", err)
+		slog.Error("Failed to save file", "error", err)
+		return nil, appErr.Internal("failed to save file", err)
 	}
 
 	// Create media record
@@ -130,9 +141,10 @@ func (s *Service) UploadMedia(file *multipart.FileHeader) (*Media, error) {
 	}
 
 	// Store in repository
-	err = s.repo.Save(media)
+	err = s.repo.Save(ctx, media)
 	if err != nil {
-		return nil, fmt.Errorf("failed to save media to repository: %w", err)
+		slog.Error("Failed to save media to repository", "error", err)
+		return nil, appErr.Internal("failed to save media to repository", err)
 	}
 
 	return media, nil
@@ -188,30 +200,54 @@ func (s *Service) getImageDimensions(fileBytes []byte) (image.Rectangle, error) 
 }
 
 // GetMedia retrieves a media file by ID
-func (s *Service) GetMedia(id string) (*Media, error) {
-	return s.repo.GetByID(id)
+func (s *Service) GetMedia(ctx context.Context, id string) (*Media, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, appErr.Internal("context cancelled", err)
+	}
+
+	media, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		slog.Error("Failed to get media", "id", id, "error", err)
+		return nil, err
+	}
+	return media, nil
 }
 
 // GetAllMedia retrieves all media files
-func (s *Service) GetAllMedia() ([]*Media, error) {
-	return s.repo.GetAll()
+func (s *Service) GetAllMedia(ctx context.Context) ([]*Media, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, appErr.Internal("context cancelled", err)
+	}
+
+	media, err := s.repo.GetAll(ctx)
+	if err != nil {
+		slog.Error("Failed to get all media", "error", err)
+		return nil, appErr.Internal("failed to retrieve media", err)
+	}
+	return media, nil
 }
 
 // DeleteMedia deletes a media file
-func (s *Service) DeleteMedia(id string) error {
-	media, err := s.repo.GetByID(id)
+func (s *Service) DeleteMedia(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return appErr.Internal("context cancelled", err)
+	}
+
+	media, err := s.repo.GetByID(ctx, id)
 	if err != nil {
+		slog.Error("Failed to get media for deletion", "id", id, "error", err)
 		return err
 	}
 
 	// Delete file from disk
 	err = os.Remove(media.FilePath)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete file: %w", err)
+		slog.Error("Failed to delete file", "error", err)
+		return appErr.Internal("failed to delete file", err)
 	}
 
 	// Remove from repository
-	return s.repo.Delete(id)
+	return s.repo.Delete(ctx, id)
 }
 
 // Helper functions

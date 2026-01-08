@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"example.com/myapp/internal/users"
@@ -16,13 +17,15 @@ func LoadUserMiddleware(repo users.Repository) func(next http.Handler) http.Hand
 			// Get validated ID from context (set by ValidateIDMiddleware)
 			id, ok := r.Context().Value("userID").(int)
 			if !ok {
+				slog.Error("User ID not found in context")
 				http.Error(w, "User ID not found in context", http.StatusInternalServerError)
 				return
 			}
 
-			// Fetch user from repository
-			user, err := repo.GetByID(id)
+			// Fetch user from repository with request context
+			user, err := repo.GetByID(r.Context(), id)
 			if err != nil {
+				slog.Error("Failed to load user", "id", id, "error", err)
 				http.Error(w, "User not found", http.StatusNotFound)
 				return
 			}

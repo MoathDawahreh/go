@@ -2,8 +2,10 @@ package media
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
+	appErr "example.com/myapp/internal/errors"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -41,19 +43,21 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 	// Parse multipart form with 300MB max (buffer for multiple files)
 	err := r.ParseMultipartForm(300 * 1024 * 1024)
 	if err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		slog.Error("Failed to parse form", "error", err)
+		respondMediaError(w, appErr.BadRequest("failed to parse form"), http.StatusBadRequest)
 		return
 	}
 
 	file, fileHeader, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, "Failed to get file from request", http.StatusBadRequest)
+		slog.Error("Failed to get file from request", "error", err)
+		respondMediaError(w, appErr.BadRequest("failed to get file from request"), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
 	// Upload and process media
-	media, err := h.service.UploadMedia(fileHeader)
+	media, err := h.service.UploadMedia(r.Context(), fileHeader)
 
 	response := &MediaUploadResponse{
 		Success: err == nil,
@@ -64,11 +68,12 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 		response.Error = err.Error()
 		response.Success = false
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(getMediaStatusCode(err))
 	} else {
 		response.Message = "File uploaded and processed successfully"
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
+		slog.Info("Media uploaded", "id", media.ID)
 	}
 
 	json.NewEncoder(w).Encode(response)
@@ -76,8 +81,9 @@ func (h *Handler) UploadMedia(w http.ResponseWriter, r *http.Request) {
 
 // GetAllMedia retrieves all media files - GET /media
 func (h *Handler) GetAllMedia(w http.ResponseWriter, r *http.Request) {
-	mediaList, err := h.service.GetAllMedia()
+	mediaList, err := h.service.GetAllMedia(r.Context())
 	if err != nil {
+		slog.Error("Failed to get all media", "error", err)
 		response := &MediaListResponse{
 			Error: "Failed to retrieve media: " + err.Error(),
 		}
@@ -101,8 +107,9 @@ func (h *Handler) GetAllMedia(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetMedia(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	media, err := h.service.GetMedia(id)
+	media, err := h.service.GetMedia(r.Context(), id)
 	if err != nil {
+		slog.Error("Failed to get media", "id", id, "error", err)
 		response := &MediaListResponse{
 			Error: "Media not found",
 		}
@@ -121,8 +128,9 @@ func (h *Handler) GetMedia(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteMedia(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	err := h.service.DeleteMedia(id)
+	err := h.service.DeleteMedia(r.Context(), id)
 	if err != nil {
+		slog.Error("Failed to delete media", "id", id, "error", err)
 		response := &MediaListResponse{
 			Error: "Failed to delete media: " + err.Error(),
 		}
@@ -137,6 +145,7 @@ func (h *Handler) DeleteMedia(w http.ResponseWriter, r *http.Request) {
 		"message": "Media deleted successfully",
 	}
 
+	slog.Info("Media deleted", "id", id)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
@@ -146,8 +155,9 @@ func (h *Handler) DeleteMedia(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DownloadMedia(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	media, err := h.service.GetMedia(id)
+	media, err := h.service.GetMedia(r.Context(), id)
 	if err != nil {
+		slog.Error("Failed to get media for download", "id", id, "error", err)
 		http.Error(w, "Media not found", http.StatusNotFound)
 		return
 	}
@@ -158,7 +168,8 @@ func (h *Handler) DownloadMedia(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, media.FilePath)
 }
 
-// Helper function to get content type based on format
+// Helper functions
+
 func getMediaContentType(format string) string {
 	switch format {
 	case "jpg", "jpeg":
@@ -174,4 +185,35 @@ func getMediaContentType(format string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func getMediaStatusCode(err error) int {
+	if err == nil {
+		return http.StatusOK
+	}
+
+	ae := appErr.GetAppError(err)
+	if ae == nil {
+		return http.StatusInternalServerError
+	}
+
+	switch ae.Code {
+	case appErr.ErrCodeNotFound:
+		return http.StatusNotFound
+	case appErr.ErrCodeBadRequest, appErr.ErrCodeInvalidID, appErr.ErrCodeUnsupported:
+		return http.StatusBadRequest
+	case appErr.ErrCodeFileTooLarge:
+		return http.StatusRequestEntityTooLarge
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+func respondMediaError(w http.ResponseWriter, err error, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	response := &MediaListResponse{
+		Error: err.Error(),
+	}
+	json.NewEncoder(w).Encode(response)
 }
