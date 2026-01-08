@@ -1,37 +1,36 @@
 package container
 
 import (
-	"example.com/myapp/internal/handlers"
-	"example.com/myapp/internal/repositories"
-	"example.com/myapp/internal/services"
+	"example.com/myapp/internal/media"
+	"example.com/myapp/internal/users"
 )
 
 type Container struct {
 	// Repositories
-	UserRepository  repositories.UserRepository
-	MediaRepository repositories.MediaRepository
+	UserRepository  users.Repository
+	MediaRepository media.Repository
 
 	// Services
-	UserService   *services.UserService
-	MediaService  *services.MediaService
+	UserService   *users.Service
+	MediaService  *media.Service
 
 	// Handlers
-	UserHandler   *handlers.UserHandler
-	MediaHandler  *handlers.MediaHandler
+	UserHandler   *users.Handler
+	MediaHandler  *media.Handler
 }
 
 func NewContainer() *Container {
 	// Initialize repositories
-	userRepo := repositories.NewInMemoryUserRepository()
-	mediaRepo := repositories.NewInMemoryMediaRepository()
+	userRepo := users.NewInMemoryRepository()
+	mediaRepo := media.NewInMemoryRepository()
 
 	// Initialize services with repositories
-	userService := services.NewUserService(userRepo)
-	mediaService := services.NewMediaService(mediaRepo)
+	userService := users.NewService(userRepo)
+	mediaService := media.NewService(mediaRepo)
 
 	// Initialize handlers with services and repositories
-	userHandler := handlers.NewUserHandler(userService, userRepo)
-	mediaHandler := handlers.NewMediaHandler(mediaService)
+	userHandler := users.NewHandler(userService, userRepo)
+	mediaHandler := media.NewHandler(mediaService)
 
 	return &Container{
 		UserRepository:  userRepo,

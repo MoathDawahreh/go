@@ -4,13 +4,13 @@ import (
 	"context"
 	"net/http"
 
-	"example.com/myapp/internal/repositories"
+	"example.com/myapp/internal/users"
 )
 
 // LoadUserMiddleware fetches the user from the database and puts it into the request context.
 // This middleware assumes the {id} parameter has been validated by ValidateIDMiddleware
 // Usage: Apply after ValidateIDMiddleware
-func LoadUserMiddleware(repo repositories.UserRepository) func(next http.Handler) http.Handler {
+func LoadUserMiddleware(repo users.Repository) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Get validated ID from context (set by ValidateIDMiddleware)
